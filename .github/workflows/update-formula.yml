@@ -1,0 +1,82 @@
+name: Update Formula
+
+on:
+  repository_dispatch:
+    types: [update-formula]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to update (e.g., v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  update-formula:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tap repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get release information
+        id: release
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            VERSION="${{ github.event.client_payload.version }}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          
+          # Get the tarball URL and calculate SHA256
+          TARBALL_URL="https://github.com/mishaal79/chezmoi-sync/archive/refs/tags/${VERSION}.tar.gz"
+          echo "TARBALL_URL=${TARBALL_URL}" >> $GITHUB_OUTPUT
+          
+          # Download and calculate SHA256
+          curl -L -o /tmp/release.tar.gz "${TARBALL_URL}"
+          SHA256=$(sha256sum /tmp/release.tar.gz | cut -d' ' -f1)
+          echo "SHA256=${SHA256}" >> $GITHUB_OUTPUT
+          
+          # Clean version (remove 'v' prefix if present)
+          CLEAN_VERSION=${VERSION#v}
+          echo "CLEAN_VERSION=${CLEAN_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Update formula
+        run: |
+          VERSION="${{ steps.release.outputs.VERSION }}"
+          SHA256="${{ steps.release.outputs.SHA256 }}"
+          TARBALL_URL="${{ steps.release.outputs.TARBALL_URL }}"
+          
+          # Update the formula file
+          sed -i "s|url \".*\"|url \"${TARBALL_URL}\"|" Formula/chezmoi-sync.rb
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/chezmoi-sync.rb
+          
+          # Also update version comment if present
+          if grep -q "# Version:" Formula/chezmoi-sync.rb; then
+            sed -i "s|# Version:.*|# Version: ${VERSION}|" Formula/chezmoi-sync.rb
+          fi
+
+      - name: Commit and push changes
+        run: |
+          VERSION="${{ steps.release.outputs.VERSION }}"
+          
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          git add Formula/chezmoi-sync.rb
+          git diff --staged --quiet || git commit -m "Update chezmoi-sync to ${VERSION}"
+          git push
+
+      - name: Create PR comment
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          VERSION="${{ steps.release.outputs.VERSION }}"
+          echo "Formula updated successfully for chezmoi-sync ${VERSION}!" > /tmp/comment.txt
+          echo "" >> /tmp/comment.txt
+          echo "Users can now upgrade using:" >> /tmp/comment.txt
+          echo "\`\`\`bash" >> /tmp/comment.txt
+          echo "brew update" >> /tmp/comment.txt
+          echo "brew upgrade chezmoi-sync" >> /tmp/comment.txt
+          echo "\`\`\`" >> /tmp/comment.txt

@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+*.tar.gz
+test-output/
+coverage/
+
+# Temporary
+*.tmp
+*.temp
+*.log

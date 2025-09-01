@@ -1,0 +1,71 @@
+name: Test Formula
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-formula:
+    strategy:
+      matrix:
+        os: [macos-12, macos-13, macos-14]
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+
+      - name: Test formula installation
+        run: |
+          # Add this tap
+          brew tap mishaal79/chezmoi-sync .
+          
+          # Audit the formula
+          brew audit --strict chezmoi-sync
+          
+          # Install the formula
+          brew install chezmoi-sync
+          
+          # Test the formula
+          brew test chezmoi-sync
+
+      - name: Test service installation
+        run: |
+          # Check that services can be loaded
+          brew services list | grep chezmoi-sync
+          
+          # Check that the main command works
+          chezmoi-sync status
+          
+          # Check that configuration exists
+          test -f "$(brew --prefix)/etc/chezmoi-sync/chezmoi-sync.conf"
+          
+          # Check that machine ID was created
+          test -f "$(brew --prefix)/var/lib/chezmoi-sync/machine-id"
+
+      - name: Test migration from manual installation
+        run: |
+          # Simulate existing manual installation
+          mkdir -p ~/.config/chezmoi-sync
+          echo "test-machine-id" > ~/.config/chezmoi-sync/machine-id
+          
+          # Reinstall to trigger migration
+          brew reinstall chezmoi-sync
+          
+          # Check that migration worked
+          MIGRATED_ID=$(cat "$(brew --prefix)/var/lib/chezmoi-sync/machine-id")
+          if [ "$MIGRATED_ID" != "test-machine-id" ]; then
+            echo "Migration failed: expected 'test-machine-id', got '$MIGRATED_ID'"
+            exit 1
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          brew uninstall --force chezmoi-sync || true
+          brew untap mishaal79/chezmoi-sync || true

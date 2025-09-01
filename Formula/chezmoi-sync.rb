@@ -67,15 +67,16 @@ class ChezmoiSync < Formula
           ;;
         restart)
           brew services restart chezmoi-sync
-          brew services restart chezmoi-sync-pull
+          launchctl unload ~/Library/LaunchAgents/com.chezmoi.sync.pull.plist 2>/dev/null || true
+          launchctl load ~/Library/LaunchAgents/com.chezmoi.sync.pull.plist 2>/dev/null || true
           ;;
         stop)
           brew services stop chezmoi-sync
-          brew services stop chezmoi-sync-pull
+          launchctl unload ~/Library/LaunchAgents/com.chezmoi.sync.pull.plist 2>/dev/null || true
           ;;
         start)
           brew services start chezmoi-sync
-          brew services start chezmoi-sync-pull
+          launchctl load ~/Library/LaunchAgents/com.chezmoi.sync.pull.plist 2>/dev/null || true
           ;;
         *)
           echo "Usage: chezmoi-sync {status|push|pull|dev-mode|restart|stop|start}"
@@ -92,7 +93,70 @@ class ChezmoiSync < Formula
     (etc/"chezmoi-sync/chezmoi-sync.conf").write(config_content)
   end
 
+  def create_plist_files
+    # Create push service plist
+    push_plist = "#{prefix}/com.chezmoi.sync.push.plist"
+    File.write(push_plist, <<~EOS)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+        <key>Label</key>
+        <string>com.chezmoi.sync.push</string>
+        <key>ProgramArguments</key>
+        <array>
+          <string>#{opt_bin}/chezmoi-sync-push</string>
+        </array>
+        <key>WatchPaths</key>
+        <array>
+          <string>#{ENV["HOME"]}/.local/share/chezmoi</string>
+        </array>
+        <key>ThrottleInterval</key>
+        <integer>5</integer>
+        <key>StandardOutPath</key>
+        <string>#{var}/log/chezmoi-sync/push.log</string>
+        <key>StandardErrorPath</key>
+        <string>#{var}/log/chezmoi-sync/push.error.log</string>
+        <key>EnvironmentVariables</key>
+        <dict>
+          <key>PATH</key>
+          <string>#{HOMEBREW_PREFIX}/bin:/usr/bin:/bin</string>
+        </dict>
+      </dict>
+      </plist>
+    EOS
+    
+    # Create pull service plist
+    pull_plist = "#{prefix}/com.chezmoi.sync.pull.plist"
+    File.write(pull_plist, <<~EOS)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+        <key>Label</key>
+        <string>com.chezmoi.sync.pull</string>
+        <key>ProgramArguments</key>
+        <array>
+          <string>#{opt_bin}/chezmoi-sync-pull</string>
+        </array>
+        <key>StartInterval</key>
+        <integer>300</integer>
+        <key>StandardOutPath</key>
+        <string>#{var}/log/chezmoi-sync/pull.log</string>
+        <key>StandardErrorPath</key>
+        <string>#{var}/log/chezmoi-sync/pull.error.log</string>
+        <key>EnvironmentVariables</key>
+        <dict>
+          <key>PATH</key>
+          <string>#{HOMEBREW_PREFIX}/bin:/usr/bin:/bin</string>
+        </dict>
+      </dict>
+      </plist>
+    EOS
+  end
+  
   def post_install
+    create_plist_files
     # Check for existing installation and migrate if necessary
     legacy_machine_id = "#{ENV["HOME"]}/.config/chezmoi-sync/machine-id"
     new_machine_id = "#{var}/lib/chezmoi-sync/machine-id"
@@ -151,28 +215,20 @@ class ChezmoiSync < Formula
     restart_delay 5
   end
 
-  # Define second service for pull operations
-  service "chezmoi-sync-pull" do
-    name macos: "com.chezmoi.sync.pull"
-    
-    run [opt_bin/"chezmoi-sync-pull"]
-    environment_variables PATH: "#{HOMEBREW_PREFIX}/bin:/usr/bin:/bin",
-                          HOMEBREW_PREFIX: HOMEBREW_PREFIX.to_s
-    log_path var/"log/chezmoi-sync/pull.log"
-    error_log_path var/"log/chezmoi-sync/pull.error.log"
-    
-    # Run every 5 minutes
-    interval 300
-  end
+  # Note: Homebrew formulas only support one service definition
+  # The pull service will need to be started manually or via a separate mechanism
 
   def caveats
     <<~EOS
       Chezmoi-sync has been installed!
 
       To get started:
-        1. Start the services:
-           brew services start chezmoi-sync
-           brew services start chezmoi-sync-pull
+        1. Install the plist files:
+           cp #{prefix}/*.plist ~/Library/LaunchAgents/
+           
+        2. Start the services:
+           brew services start chezmoi-sync  # Push service
+           launchctl load ~/Library/LaunchAgents/com.chezmoi.sync.pull.plist  # Pull service
 
         2. Check status:
            chezmoi-sync status

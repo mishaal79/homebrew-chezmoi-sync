@@ -3,8 +3,8 @@
 class ChezmoiSync < Formula
   desc "Automated dotfiles synchronization for multiple machines using chezmoi"
   homepage "https://github.com/mishaal79/chezmoi-sync"
-  url "https://github.com/mishaal79/chezmoi-sync/archive/refs/tags/v1.0.0.tar.gz"
-  sha256 "fc178c5fa03b15e634fd3623a98fb63ddc38dfce96d362b8e3242a08cf6242bb"
+  url "https://github.com/mishaal79/chezmoi-sync/archive/refs/tags/v1.1.0.tar.gz"
+  sha256 "7a6f91a7c3d3abc3ee1aea2bef34545a7d0e5945ab0a78cacbfd92c28749d702"
   license "MIT"
   head "https://github.com/mishaal79/chezmoi-sync.git", branch: "main"
 

@@ -28,19 +28,19 @@ class ChezmoiSync < Formula
 
     scripts_to_install.each do |script|
       script_content = File.read("scripts/#{script}")
-      
+
       # Replace hardcoded paths with Homebrew paths
       script_content.gsub!("${HOME}/code/private/chezmoi-sync/config/", "#{etc}/chezmoi-sync/")
       script_content.gsub!("${HOME}/Library/Logs/chezmoi", "#{var}/log/chezmoi-sync")
       script_content.gsub!("${HOME}/.config/chezmoi-sync/", "#{var}/lib/chezmoi-sync/")
-      script_content.gsub!("CONFIG_FILE=\"${HOME}/code/private/chezmoi-sync/config/chezmoi-sync.conf\"", 
+      script_content.gsub!("CONFIG_FILE=\"${HOME}/code/private/chezmoi-sync/config/chezmoi-sync.conf\"",
                           "CONFIG_FILE=\"#{etc}/chezmoi-sync/chezmoi-sync.conf\"")
-      script_content.gsub!("LOG_DIR=\"${LOG_DIR:-$HOME/Library/Logs/chezmoi}\"", 
+      script_content.gsub!("LOG_DIR=\"${LOG_DIR:-$HOME/Library/Logs/chezmoi}\"",
                           "LOG_DIR=\"${LOG_DIR:-#{var}/log/chezmoi-sync}\"")
-      
+
       # Write modified script
       script_name = script.chomp(".sh")
-      script_path = bin/"chezmoi-sync-#{script_name.sub('chezmoi-', '')}"
+      script_path = bin/"chezmoi-sync-#{script_name.sub("chezmoi-", "")}"
       script_path.write(script_content)
       script_path.chmod(0755)
     end
@@ -48,10 +48,10 @@ class ChezmoiSync < Formula
     # Create main chezmoi-sync command
     (bin/"chezmoi-sync").write <<~EOS
       #!/bin/bash
-      
+
       COMMAND="${1:-status}"
       shift || true
-      
+
       case "$COMMAND" in
         status|st)
           exec "#{bin}/chezmoi-sync-status" "$@"
@@ -94,7 +94,7 @@ class ChezmoiSync < Formula
 
     # Install configuration file
     config_content = File.read("config/chezmoi-sync.conf")
-    config_content.gsub!("LOG_DIR=\"${HOME}/Library/Logs/chezmoi\"", 
+    config_content.gsub!("LOG_DIR=\"${HOME}/Library/Logs/chezmoi\"",
                         "LOG_DIR=\"#{var}/log/chezmoi-sync\"")
     (etc/"chezmoi-sync/chezmoi-sync.conf").write(config_content)
   end
@@ -115,7 +115,7 @@ class ChezmoiSync < Formula
         </array>
         <key>WatchPaths</key>
         <array>
-          <string>#{ENV["HOME"]}/.local/share/chezmoi</string>
+          <string>#{Dir.home}/.local/share/chezmoi</string>
         </array>
         <key>ThrottleInterval</key>
         <integer>5</integer>
@@ -131,7 +131,7 @@ class ChezmoiSync < Formula
       </dict>
       </plist>
     EOS
-    
+
     # Create pull service plist
     pull_plist = "#{prefix}/com.chezmoi.sync.pull.plist"
     File.write(pull_plist, <<~EOS)
@@ -160,16 +160,16 @@ class ChezmoiSync < Formula
       </plist>
     EOS
   end
-  
+
   def post_install
     create_plist_files
     # Check for existing installation and migrate if necessary
-    legacy_machine_id = "#{ENV["HOME"]}/.config/chezmoi-sync/machine-id"
+    legacy_machine_id = "#{Dir.home}/.config/chezmoi-sync/machine-id"
     new_machine_id = "#{var}/lib/chezmoi-sync/machine-id"
-    
+
     if File.exist?(legacy_machine_id) && !File.exist?(new_machine_id)
       ohai "Migrating existing machine ID from manual installation"
-      FileUtils.cp(legacy_machine_id, new_machine_id)
+      cp legacy_machine_id, new_machine_id
     end
 
     # Create initial machine ID if not exists
@@ -180,7 +180,7 @@ class ChezmoiSync < Formula
       else
         Socket.gethostname.split(".").first
       end
-      
+
       machine_id = machine_id.downcase.gsub(/[^a-z0-9-]/, "-")
       File.write(new_machine_id, machine_id)
       ohai "Created machine ID: #{machine_id}"
@@ -191,35 +191,35 @@ class ChezmoiSync < Formula
       com.chezmoi.autopush.plist
       com.chezmoi.autopull.plist
     ]
-    
+
     legacy_agents.each do |agent|
-      agent_path = "#{ENV["HOME"]}/Library/LaunchAgents/#{agent}"
-      if File.exist?(agent_path)
-        ohai "Found legacy LaunchAgent: #{agent}"
-        system("launchctl", "unload", agent_path, err: :null)
-        FileUtils.rm_f(agent_path)
-      end
+      agent_path = "#{Dir.home}/Library/LaunchAgents/#{agent}"
+      next unless File.exist?(agent_path)
+
+      ohai "Found legacy LaunchAgent: #{agent}"
+      system("launchctl", "unload", agent_path, err: :null)
+      rm agent_path
     end
   end
 
-  # Note: Since we need WatchPaths, we'll create custom plist files
+  # NOTE: Since we need WatchPaths, we'll create custom plist files
   # and manage services manually rather than using Homebrew's service DSL
   service do
     name macos: "com.chezmoi.sync.main"
-    
+
     # This is a dummy service that just runs the status command
     # Real services are managed via custom plist files
     run [opt_bin/"chezmoi-sync", "status"]
-    environment_variables PATH: "#{HOMEBREW_PREFIX}/bin:/usr/bin:/bin",
+    environment_variables PATH:            "#{HOMEBREW_PREFIX}/bin:/usr/bin:/bin",
                           HOMEBREW_PREFIX: HOMEBREW_PREFIX.to_s
     log_path var/"log/chezmoi-sync/status.log"
     error_log_path var/"log/chezmoi-sync/status.error.log"
-    
+
     # Run once per day (86400 seconds)
     interval 86400
   end
 
-  # Note: Homebrew formulas only support one service definition
+  # NOTE: Homebrew formulas only support one service definition
   # The pull service will need to be started manually or via a separate mechanism
 
   def caveats
@@ -228,7 +228,7 @@ class ChezmoiSync < Formula
 
       To get started, simply run:
         chezmoi-sync start
-        
+
       This will install and start both services:
         - Push service (monitors file changes)
         - Pull service (runs every 5 minutes)
@@ -257,14 +257,14 @@ class ChezmoiSync < Formula
   test do
     # Test that the main command exists and runs
     assert_match "Chezmoi Sync System Status", shell_output("#{bin}/chezmoi-sync status 2>&1")
-    
+
     # Test that configuration file exists
-    assert_predicate etc/"chezmoi-sync/chezmoi-sync.conf", :exist?
-    
+    assert_path_exists etc/"chezmoi-sync/chezmoi-sync.conf"
+
     # Test that log directory was created
     assert_predicate var/"log/chezmoi-sync", :directory?
-    
+
     # Test machine ID generation
-    assert_predicate var/"lib/chezmoi-sync/machine-id", :exist?
+    assert_path_exists var/"lib/chezmoi-sync/machine-id"
   end
 end

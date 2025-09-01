@@ -66,17 +66,23 @@ class ChezmoiSync < Formula
           exec "#{bin}/chezmoi-sync-dev-mode" "$@"
           ;;
         restart)
-          brew services restart chezmoi-sync
+          launchctl unload ~/Library/LaunchAgents/com.chezmoi.sync.push.plist 2>/dev/null || true
           launchctl unload ~/Library/LaunchAgents/com.chezmoi.sync.pull.plist 2>/dev/null || true
+          sleep 1
+          launchctl load ~/Library/LaunchAgents/com.chezmoi.sync.push.plist 2>/dev/null || true
           launchctl load ~/Library/LaunchAgents/com.chezmoi.sync.pull.plist 2>/dev/null || true
+          echo "Services restarted"
           ;;
         stop)
-          brew services stop chezmoi-sync
+          launchctl unload ~/Library/LaunchAgents/com.chezmoi.sync.push.plist 2>/dev/null || true
           launchctl unload ~/Library/LaunchAgents/com.chezmoi.sync.pull.plist 2>/dev/null || true
+          echo "Services stopped"
           ;;
         start)
-          brew services start chezmoi-sync
+          cp #{prefix}/*.plist ~/Library/LaunchAgents/ 2>/dev/null || true
+          launchctl load ~/Library/LaunchAgents/com.chezmoi.sync.push.plist 2>/dev/null || true
           launchctl load ~/Library/LaunchAgents/com.chezmoi.sync.pull.plist 2>/dev/null || true
+          echo "Services started"
           ;;
         *)
           echo "Usage: chezmoi-sync {status|push|pull|dev-mode|restart|stop|start}"
@@ -196,23 +202,21 @@ class ChezmoiSync < Formula
     end
   end
 
+  # Note: Since we need WatchPaths, we'll create custom plist files
+  # and manage services manually rather than using Homebrew's service DSL
   service do
-    name macos: "com.chezmoi.sync.push"
+    name macos: "com.chezmoi.sync.main"
     
-    # Push service with WatchPaths
-    run [opt_bin/"chezmoi-sync-push"]
+    # This is a dummy service that just runs the status command
+    # Real services are managed via custom plist files
+    run [opt_bin/"chezmoi-sync", "status"]
     environment_variables PATH: "#{HOMEBREW_PREFIX}/bin:/usr/bin:/bin",
                           HOMEBREW_PREFIX: HOMEBREW_PREFIX.to_s
-    log_path var/"log/chezmoi-sync/push.log"
-    error_log_path var/"log/chezmoi-sync/push.error.log"
+    log_path var/"log/chezmoi-sync/status.log"
+    error_log_path var/"log/chezmoi-sync/status.error.log"
     
-    # WatchPaths for detecting changes
-    if OS.mac?
-      watch_paths ["#{ENV["HOME"]}/.local/share/chezmoi"]
-    end
-    
-    # Throttle to prevent excessive runs
-    restart_delay 5
+    # Run once per day (86400 seconds)
+    interval 86400
   end
 
   # Note: Homebrew formulas only support one service definition
@@ -222,21 +226,18 @@ class ChezmoiSync < Formula
     <<~EOS
       Chezmoi-sync has been installed!
 
-      To get started:
-        1. Install the plist files:
-           cp #{prefix}/*.plist ~/Library/LaunchAgents/
-           
-        2. Start the services:
-           brew services start chezmoi-sync  # Push service
-           launchctl load ~/Library/LaunchAgents/com.chezmoi.sync.pull.plist  # Pull service
+      To get started, simply run:
+        chezmoi-sync start
+        
+      This will install and start both services:
+        - Push service (monitors file changes)
+        - Pull service (runs every 5 minutes)
 
-        2. Check status:
-           chezmoi-sync status
-
-        3. Manage services:
-           chezmoi-sync start    # Start both services
-           chezmoi-sync stop     # Stop both services
-           chezmoi-sync restart  # Restart both services
+      Commands:
+        chezmoi-sync status    # Check service status
+        chezmoi-sync start     # Start both services
+        chezmoi-sync stop      # Stop both services
+        chezmoi-sync restart   # Restart both services
 
       Development mode:
         chezmoi-sync dev-mode on   # Disable auto-sync
